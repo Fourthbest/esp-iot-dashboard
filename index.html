@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Monitoreo y Control IoT</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        body {
+            background-color: #f5f5f5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .card {
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card-header {
+            background-color: #3498db;
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            font-weight: bold;
+        }
+        .temperature-card .card-header {
+            background-color: #e74c3c;
+        }
+        .humidity-card .card-header {
+            background-color: #3498db;
+        }
+        .control-card .card-header {
+            background-color: #2ecc71;
+        }
+        .gauge-container {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+            position: relative;
+        }
+        .gauge-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        .slider-container {
+            margin-top: 20px;
+        }
+        #servoValue {
+            font-weight: bold;
+            font-size: 18px;
+            margin-left: 10px;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .active-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .active-on {
+            background-color: #2ecc71;
+            box-shadow: 0 0 10px #2ecc71;
+            animation: pulse 1.5s infinite;
+        }
+        .active-off {
+            background-color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">Sistema de Monitoreo y Control IoT</h1>
+        
+        <div class="row">
+            <!-- Temperatura -->
+            <div class="col-md-6">
+                <div class="card temperature-card">
+                    <div class="card-header">
+                        Temperatura
+                    </div>
+                    <div class="card-body text-center">
+                        <div class="gauge-container">
+                            <canvas id="temperatureGauge"></canvas>
+                            <div class="gauge-value"><span id="temperatureValue">--</span> °C</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Humedad -->
+            <div class="col-md-6">
+                <div class="card humidity-card">
+                    <div class="card-header">
+                        Humedad
+                    </div>
+                    <div class="card-body text-center">
+                        <div class="gauge-container">
+                            <canvas id="humidityGauge"></canvas>
+                            <div class="gauge-value"><span id="humidityValue">--</span> %</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <!-- Gráfico histórico -->
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        Histórico de Datos
+                    </div>
+                    <div class="card-body">
+                        <canvas id="historyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <!-- Control de Relé -->
+            <div class="col-md-6">
+                <div class="card control-card">
+                    <div class="card-header">
+                        Control de Relé
+                    </div>
+                    <div class="card-body text-center">
+                        <h5>Estado: <span id="relayStatus">Desconectado</span>
+                            <span class="active-indicator active-off" id="relayIndicator"></span>
+                        </h5>
+                        <div class="mt-3">
+                            <label class="switch">
+                                <input type="checkbox" id="relayToggle">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Control de Servo -->
+            <div class="col-md-6">
+                <div class="card control-card">
+                    <div class="card-header">
+                        Control de Servomotor
+                    </div>
+                    <div class="card-body">
+                        <h5>Posición: <span id="servoValue">90</span>°</h5>
+                        <div class="slider-container">
+                            <input type="range" class="form-range" min="0" max="180" value="90" id="servoSlider">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="mt-4 text-center text-muted">
+            <p>Práctica 8: Interfaces Gráficas - Sistema de Monitoreo y Control</p>
+        </footer>
+    </div>
+
+    <script>
+        // Configuración de Firebase con tus credenciales
+        const firebaseConfig = {
+            apiKey: "AIzaSyC8BgWtUPVfiFCdNAN815AcX5OKU4HbF5Y",
+            authDomain: "esp32-iot-control-e1bb2.firebaseapp.com",
+            databaseURL: "https://esp32-iot-control-e1bb2-default-rtdb.firebaseio.com",
+            projectId: "esp32-iot-control-e1bb2",
+            storageBucket: "esp32-iot-control-e1bb2.firebasestorage.app",
+            messagingSenderId: "88376998677",
+            appId: "1:88376998677:web:ebe842418a3422c5d3871c"
+        };
+        
+        // Inicializar Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        
+        // Referencias a elementos DOM
+        const temperatureValue = document.getElementById('temperatureValue');
+        const humidityValue = document.getElementById('humidityValue');
+        const relayStatus = document.getElementById('relayStatus');
+        const relayIndicator = document.getElementById('relayIndicator');
+        const relayToggle = document.getElementById('relayToggle');
+        const servoSlider = document.getElementById('servoSlider');
+        const servoValue = document.getElementById('servoValue');
+        
+        // Configuración de gauges
+        const temperatureGauge = new Chart(document.getElementById('temperatureGauge'), {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [0, 100],
+                    backgroundColor: [
+                        'rgba(231, 76, 60, 0.8)',
+                        'rgba(231, 76, 60, 0.2)'
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                circumference: 180,
+                rotation: 270,
+                cutout: '70%',
+                plugins: {
+                    tooltip: { enabled: false },
+                    legend: { display: false }
+                },
+                animation: { duration: 500 }
+            }
+        });
+        
+        const humidityGauge = new Chart(document.getElementById('humidityGauge'), {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [0, 100],
+                    backgroundColor: [
+                        'rgba(52, 152, 219, 0.8)',
+                        'rgba(52, 152, 219, 0.2)'
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                circumference: 180,
+                rotation: 270,
+                cutout: '70%',
+                plugins: {
+                    tooltip: { enabled: false },
+                    legend: { display: false }
+                },
+                animation: { duration: 500 }
+            }
+        });
+        
+        // Configuración del gráfico histórico
+        const historyChart = new Chart(document.getElementById('historyChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Temperatura (°C)',
+                        data: [],
+                        borderColor: 'rgba(231, 76, 60, 1)',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Humedad (%)',
+                        data: [],
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: false }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: { display: true, text: 'Tiempo' }
+                    },
+                    y: {
+                        display: true,
+                        title: { display: true, text: 'Valor' }
+                    }
+                }
+            }
+        });
+        
+        // Función para actualizar gauges
+        function updateGauge(gauge, value, max) {
+            gauge.data.datasets[0].data[0] = value;
+            gauge.data.datasets[0].data[1] = max - value;
+            gauge.update();
+        }
+        
+        // Función para añadir datos al gráfico histórico
+        function addDataToChart(chart, label, temp, hum) {
+            if (chart.data.labels.length > 10) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+                chart.data.datasets[1].data.shift();
+            }
+            chart.data.labels.push(label);
+            chart.data.datasets[0].data.push(temp);
+            chart.data.datasets[1].data.push(hum);
+            chart.update();
+        }
+        
+        // Listeners para los controles
+        relayToggle.addEventListener('change', function() {
+            const isOn = this.checked;
+            database.ref('/control/relay').set(isOn);
+            updateRelayUI(isOn);
+        });
+        
+        servoSlider.addEventListener('input', function() {
+            const position = parseInt(this.value);
+            servoValue.textContent = position;
+        });
+        
+        servoSlider.addEventListener('change', function() {
+            const position = parseInt(this.value);
+            database.ref('/control/servo').set(position);
+        });
+        
+        // Función para actualizar UI del relé
+        function updateRelayUI(isOn) {
+            relayStatus.textContent = isOn ? 'Conectado' : 'Desconectado';
+            if (isOn) {
+                relayIndicator.classList.remove('active-off');
+                relayIndicator.classList.add('active-on');
+            } else {
+                relayIndicator.classList.remove('active-on');
+                relayIndicator.classList.add('active-off');
+            }
+        }
+        
+        // Escuchar cambios de datos del DHT11
+        database.ref('/dht11_data').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const temp = data.temperatura;
+                const hum = data.humedad;
+                
+                // Actualizar valores
+                temperatureValue.textContent = temp.toFixed(1);
+                humidityValue.textContent = hum.toFixed(1);
+                
+                // Actualizar gauges
+                updateGauge(temperatureGauge, temp, 50); // Máximo 50°C
+                updateGauge(humidityGauge, hum, 100);    // Máximo 100%
+                
+                // Añadir al gráfico histórico
+                const now = new Date();
+                const timeLabel = now.getHours() + ':' + 
+                                 (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+                addDataToChart(historyChart, timeLabel, temp, hum);
+            }
+        });
+        
+        // Escuchar cambios de control
+        database.ref('/control').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Actualizar UI del relé
+                if (data.relay !== undefined) {
+                    relayToggle.checked = data.relay;
+                    updateRelayUI(data.relay);
+                }
+                
+                // Actualizar UI del servo
+                if (data.servo !== undefined) {
+                    servoSlider.value = data.servo;
+                    servoValue.textContent = data.servo;
+                }
+            }
+        });
+        
+        // Inicializar valores
+        database.ref('/control').once('value', (snapshot) => {
+            const data = snapshot.val();
+            if (!data) {
+                // Establecer valores iniciales si no existen
+                database.ref('/control').set({
+                    relay: false,
+                    servo: 90
+                });
+            }
+        });
+    </script>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
